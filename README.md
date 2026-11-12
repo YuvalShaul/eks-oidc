@@ -85,6 +85,34 @@ Open the role → **Trust relationships**. It looks like [iam/trust-policy.json]
 That condition **is** the identity. Only a workflow running in your repo, on branch `main`,
 can become this role. Without the `sub` condition, *any* GitHub repo in the world could.
 
+**Check the `sub` format.** Newer GitHub repos use an *immutable subject*: GitHub adds the numeric
+IDs of the owner and the repo, so the `sub` looks like
+`repo:<your-github-user>@<owner-id>/eks-oidc@<repo-id>:ref:refs/heads/main`. The console wizard
+writes the plain-name form, which then never matches, and AWS refuses with *Not authorized to
+perform sts:AssumeRoleWithWebIdentity*. To see your IDs, open
+`https://api.github.com/repos/<your-github-user>/eks-oidc` (note: **api.**github.com) in a browser.
+It shows raw JSON. The repo ID is the very first `"id"` at the top of the page, and the owner ID is
+the `"id"` right under `"login"` inside `"owner"`:
+
+```
+{
+  "id": 1455425349,        <- repo ID
+  ...
+  "owner": {
+    "login": "YuvalShaul",
+    "id": 40225170,        <- owner ID
+```
+
+(The first step of the **whoami** workflow in 1d also prints the exact `sub`.) If your repo uses this format,
+**Edit trust policy** and paste in that exact `sub`, for example:
+
+```json
+"StringLike": { "token.actions.githubusercontent.com:sub": "repo:YuvalShaul@40225170/eks-oidc@1455425349:ref:refs/heads/main" }
+```
+
+The IDs are why this format is safer: if the repo is ever deleted and someone recreates one
+with the same name, the new repo gets a new ID and can't assume your role.
+
 Copy the role's **ARN** (`arn:aws:iam::<account-id>:role/github-ci`).
 
 ### 1c. Tell GitHub which role to ask for
@@ -100,10 +128,20 @@ and it stays empty for the whole lab.
 
 **Actions → whoami → Run workflow.** Read the log:
 - *the OIDC token's claims*: `iss` (GitHub), `aud` (`sts.amazonaws.com`), `sub`
-  (`repo:<your-github-user>/eks-oidc:ref:refs/heads/main`), the workflow, the actor, and `exp` — the token
+  (`repo:<your-github-user>/eks-oidc:ref:refs/heads/main`, or with `@<id>`s, see 1b), the workflow, the actor, and `exp` — the token
   itself is only good for a few minutes.
 - *Who does AWS think we are?* → `assumed-role/github-ci/GitHubActions`. The role has no
   permissions at all, but `get-caller-identity` needs none.
+
+**If it fails** with *Could not assume role with OIDC: Not authorized to perform
+sts:AssumeRoleWithWebIdentity*, the token didn't match the trust policy. AWS never tells you
+which part didn't match, so compare them yourself:
+1. Open the first step of the failed run and copy the `sub` line exactly.
+2. AWS console → **IAM → Roles → github-ci → Trust relationships**. The `sub` in the policy
+   must be the same string. The usual culprit is the `@<owner-id>` / `@<repo-id>` parts (see
+   "Check the `sub` format" in 1b). Fix it with **Edit trust policy** and run **whoami** again.
+3. Still failing? Check that `aud` is `sts.amazonaws.com`, and that the `AWS_ROLE_ARN` variable
+   is exactly this role's ARN. The region doesn't matter, because IAM roles are global.
 
 Things to notice:
 - `permissions: id-token: write` in the workflow. Without it, the job can't ask GitHub for a
