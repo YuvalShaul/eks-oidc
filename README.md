@@ -157,8 +157,16 @@ Things to notice:
    Repositories → Create repository**
    - Name: `hello-flask`, tag mutability: **Mutable** (we overwrite `latest`) → **Create**
 2. **IAM → Roles → github-ci → Add permissions → Create inline policy → JSON**.
-   Paste [iam/ecr-push-policy.json](iam/ecr-push-policy.json), replace `REGION` and
-   `ACCOUNT_ID`. Name it `push-hello-flask` → **Create policy**.
+   - Get the policy from your repository on GitHub: open
+     [iam/ecr-push-policy.json](iam/ecr-push-policy.json) and click the **Copy raw file**
+     button (the two-squares icon at the top right of the file). This copies the whole file
+     exactly, so there are no missing brackets or stray characters.
+   - In the JSON editor, select everything (Ctrl+A) and paste, replacing the example policy
+     the console starts with.
+   - Replace `REGION` with `us-west-2` and `ACCOUNT_ID` with your 12-digit account ID
+     (top right of the AWS console, without the dashes). For example:
+     `arn:aws:ecr:us-west-2:123456789012:repository/hello-flask`
+   - **Next** → name it `push-hello-flask` → **Create policy**.
 
    Two statements: `ecr:GetAuthorizationToken` (log in to ECR — always `Resource: "*"`)
    and the push actions, **only on the repository `hello-flask`**.
