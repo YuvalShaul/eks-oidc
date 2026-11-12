@@ -6,7 +6,7 @@ This is the twin of the `eks-manual` lab: same app, same cluster, same "everythi
 GitHub runner, started by hand" setup. The difference is **how GitHub Actions gets into AWS**:
 
 - `eks-manual`: an IAM **user** with a long-lived **access key**, pasted into GitHub secrets.
-- `eks-oicd` (this one): **no key at all.** AWS trusts GitHub as an **OIDC identity provider**.
+- `eks-oidc` (this one): **no key at all.** AWS trusts GitHub as an **OIDC identity provider**.
   For each run, GitHub signs a short token that says *"this is repo X, branch Y, workflow Z"*.
   AWS checks it against an IAM **role**'s trust policy and hands out credentials that expire in
   1 hour. The "user" is the GitHub repository itself.
@@ -43,8 +43,8 @@ Everything that touches the app runs on a GitHub runner, started by you with the
 **Run workflow** button. Nothing runs automatically.
 
 Below, `<your-github-user>` means **your own** GitHub user name, and the repository is
-`eks-oicd` (if you named your copy differently, use that name). For example, for the user
-`YuvalShaul` the full repo is `YuvalShaul/eks-oicd`. The region is `us-west-2` — use the same
+`eks-oidc` (if you named your copy differently, use that name). For example, for the user
+`YuvalShaul` the full repo is `YuvalShaul/eks-oidc`. The region is `us-west-2` — use the same
 region everywhere.
 
 ---
@@ -68,7 +68,7 @@ AWS console → **IAM → Roles → Create role**
 - Trusted entity type: **Web identity**
 - Identity provider: `token.actions.githubusercontent.com`, Audience: `sts.amazonaws.com`
 - GitHub organization: `<your-github-user>` (your GitHub user name, e.g. `YuvalShaul`)
-- GitHub repository: `eks-oicd` (just the name, without the owner)
+- GitHub repository: `eks-oidc` (just the name, without the owner)
 - GitHub branch: `main`
 - Next → Permissions: attach **nothing** for now → Next
 - Role name: `github-ci` → **Create role**
@@ -78,7 +78,7 @@ Open the role → **Trust relationships**. It looks like [iam/trust-policy.json]
 ```json
 "Condition": {
   "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
-  "StringLike":   { "token.actions.githubusercontent.com:sub": "repo:<your-github-user>/eks-oicd:ref:refs/heads/main" }
+  "StringLike":   { "token.actions.githubusercontent.com:sub": "repo:<your-github-user>/eks-oidc:ref:refs/heads/main" }
 }
 ```
 
@@ -100,7 +100,7 @@ and it stays empty for the whole lab.
 
 **Actions → whoami → Run workflow.** Read the log:
 - *the OIDC token's claims*: `iss` (GitHub), `aud` (`sts.amazonaws.com`), `sub`
-  (`repo:<your-github-user>/eks-oicd:ref:refs/heads/main`), the workflow, the actor, and `exp` — the token
+  (`repo:<your-github-user>/eks-oidc:ref:refs/heads/main`), the workflow, the actor, and `exp` — the token
   itself is only good for a few minutes.
 - *Who does AWS think we are?* → `assumed-role/github-ci/GitHubActions`. The role has no
   permissions at all, but `get-caller-identity` needs none.
@@ -208,6 +208,6 @@ Notice what's *not* on that list: no key to revoke, no token to delete, no secre
   `main` branch. The cost is a bit more setup (provider + trust policy) and understanding
   what the `sub` claim means.
 - **Tighten further:** use GitHub **environments** (`sub` becomes
-  `repo:<your-github-user>/eks-oicd:environment:prod`) so a deploy needs a reviewer's approval before AWS
+  `repo:<your-github-user>/eks-oidc:environment:prod`) so a deploy needs a reviewer's approval before AWS
   will even trust it.
 - `AmazonEKSEditPolicy` can't create namespaces – that's why the app runs in `default`.
