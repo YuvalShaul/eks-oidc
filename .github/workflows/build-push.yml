@@ -1,0 +1,46 @@
+# Build the Flask image and push it to Amazon ECR. Run by hand: Actions > build-push > Run workflow.
+#
+# Needs (Settings > Secrets and variables > Actions > Variables - there are NO secrets):
+#   variable AWS_ROLE_ARN  - ARN of the IAM role "github-ci" (created by hand, with the ECR push policy)
+#   variable AWS_REGION    - optional, default us-west-2 (must be the region of the ECR repository)
+name: build-push
+
+on:
+  workflow_dispatch: # the "Run workflow" button
+
+permissions:
+  id-token: write # allow this job to ask GitHub for an OIDC token
+  contents: read  # needed by actions/checkout once "permissions" is set
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get AWS credentials through OIDC (no stored key)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Who does AWS think we are?
+        run: aws sts get-caller-identity
+
+      - name: Log in to ECR (a 12-hour Docker password, made from the 1-hour AWS credentials)
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          echo "IMAGE=$REGISTRY/hello-flask" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: docker build --build-arg VERSION="${GITHUB_SHA::7}" -t "$IMAGE:${GITHUB_SHA::7}" -t "$IMAGE:latest" app
+
+      - name: Push
+        run: |
+          docker push "$IMAGE:${GITHUB_SHA::7}"
+          docker push "$IMAGE:latest"
+          echo "Pushed $IMAGE:latest and :${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"

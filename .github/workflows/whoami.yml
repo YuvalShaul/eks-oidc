@@ -1,0 +1,42 @@
+# The OIDC handshake, and nothing else. Run by hand: Actions > whoami > Run workflow.
+# Works as soon as the role exists, even with zero permissions (sts:GetCallerIdentity needs none).
+#
+# Needs (Settings > Secrets and variables > Actions > Variables - there are NO secrets):
+#   variable AWS_ROLE_ARN  - ARN of the IAM role "github-ci" (created by hand)
+#   variable AWS_REGION    - optional, default us-west-2
+name: whoami
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write # allow this job to ask GitHub for an OIDC token
+  contents: read
+
+jobs:
+  whoami:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+    steps:
+      - name: What does GitHub say about this run? (the OIDC token's claims)
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                  "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$TOKEN"   # the token itself is a credential (for a few minutes): never print it
+          # A JWT is header.payload.signature; the payload is base64url JSON. Decode only the payload.
+          P=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+')
+          while [ $(( ${#P} % 4 )) -ne 0 ]; do P="$P="; done
+          echo "$P" | base64 -d | jq '{iss, aud, sub, repository, ref, workflow, actor, event_name, iat, exp}'
+          echo "AWS checks 'sub' and 'aud' against the role's trust policy. 'exp' - 'iat' = how long the token lives."
+
+      - name: Trade the token for AWS credentials (sts:AssumeRoleWithWebIdentity)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Who does AWS think we are?
+        run: |
+          aws sts get-caller-identity
+          echo "Credentials expire at: $(date -u -d "@$(( $(date +%s) + 3600 ))" +%H:%M) UTC (about 1 hour; nothing is stored)" >> "$GITHUB_STEP_SUMMARY"

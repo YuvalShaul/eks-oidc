@@ -1,0 +1,61 @@
+# Run the image on EKS. Run by hand: Actions > deploy > Run workflow.
+#
+# Needs (Settings > Secrets and variables > Actions > Variables - there are NO secrets):
+#   variable AWS_ROLE_ARN  - ARN of the IAM role "github-ci" (created by hand)
+#   variable AWS_REGION    - optional, default us-west-2
+#   variable EKS_CLUSTER   - optional, default learn-eks
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy"
+        default: latest
+
+permissions:
+  id-token: write # allow this job to ask GitHub for an OIDC token
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      EKS_CLUSTER: ${{ vars.EKS_CLUSTER || 'learn-eks' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get AWS credentials through OIDC (no stored key)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Who does AWS think we are?
+        run: aws sts get-caller-identity
+
+      - name: Get a kubeconfig for the cluster
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+
+      - name: Who does Kubernetes think we are, and what may we do?
+        run: |
+          kubectl auth whoami
+          echo "create deployments in default: $(kubectl auth can-i create deployments -n default)"
+          echo "create deployments in kube-system: $(kubectl auth can-i create deployments -n kube-system || true)"
+          echo "list nodes: $(kubectl auth can-i list nodes || true)"
+
+      - name: Deploy
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          IMAGE="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/hello-flask:${{ inputs.tag }}"
+          echo "Deploying $IMAGE (the nodes pull it with their own IAM role, not ours)"
+          sed "s|IMAGE|$IMAGE|" k8s/app.yaml | kubectl apply -f -
+          kubectl rollout restart deployment/hello-flask   # pull "latest" again
+          kubectl rollout status deployment/hello-flask --timeout=180s
+
+      - name: Where is it?
+        run: |
+          kubectl get pods -l app=hello-flask -o wide
+          HOST=$(kubectl get svc hello-flask -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "App URL: http://$HOST  (DNS may take a minute or two the first time)" | tee -a "$GITHUB_STEP_SUMMARY"

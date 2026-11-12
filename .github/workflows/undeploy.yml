@@ -1,0 +1,33 @@
+# Remove the app from EKS (and with it, the AWS load balancer).
+# Run this before `terraform destroy` - the load balancer would otherwise block deleting the VPC.
+name: undeploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write # allow this job to ask GitHub for an OIDC token
+  contents: read
+
+jobs:
+  undeploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      EKS_CLUSTER: ${{ vars.EKS_CLUSTER || 'learn-eks' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get AWS credentials through OIDC (no stored key)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get a kubeconfig for the cluster
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+
+      - name: Delete the app
+        run: |
+          kubectl delete -f k8s/app.yaml --ignore-not-found --wait
+          echo "Deleted. The load balancer goes away with the Service." >> "$GITHUB_STEP_SUMMARY"
