@@ -37,7 +37,7 @@ repo/
     └── undeploy.yml      remove the app from EKS
 ```
 
-You need: a GitHub repo with this code, an AWS account, and on your laptop `terraform` and `aws`.
+You need: a GitHub account, an AWS account, and on your laptop `git`, `terraform` and `aws`.
 No Docker, no `kubectl`, no Docker Hub: your laptop only creates and destroys the cluster.
 Everything that touches the app runs on a GitHub runner, started by you with the
 **Run workflow** button. Nothing runs automatically.
@@ -48,6 +48,27 @@ Below, `<your-github-user>` means **your own** GitHub user name, and the reposit
 region everywhere.
 
 ---
+
+## Part 0 – Get your own copy of the repo
+
+You can't use the instructor's repo. The workflows must run in **your** repository, because
+AWS will trust exactly one repo (yours), and you need to set variables in its settings.
+
+1. **On GitHub: fork it.** Open the instructor's `eks-oidc` repo and click **Fork** (top right) →
+   Owner: your user, Repository name: `eks-oidc` → **Create fork**.
+   You now have `<your-github-user>/eks-oidc`.
+2. **Turn on Actions.** GitHub disables workflows in forks by default. In your fork, open the
+   **Actions** tab and click **I understand my workflows, go ahead and enable them**.
+   Until you do, there is no **Run workflow** button.
+3. **On your laptop: clone your fork.** It's only needed for Part 3 (Terraform) and clean-up:
+
+   ```bash
+   git clone https://github.com/<your-github-user>/eks-oidc.git
+   cd eks-oidc
+   ```
+
+Everything else (running workflows, editing files for the "try it broken" steps, creating a
+branch) can be done in the GitHub web UI. If you do edit locally, `git push` to your fork.
 
 ## Part 1 – Teach AWS to trust GitHub (by hand, in the AWS console)
 
@@ -182,6 +203,8 @@ Things to notice:
   build-push.yml, and run it → the push is denied. The role can push to one repo only.
 
 ## Part 3 – Create the cluster (by hand, from your laptop)
+
+From the clone you made in Part 0:
 
 ```bash
 aws sts get-caller-identity     # make sure these are YOUR admin credentials
